@@ -10,6 +10,10 @@ variable "IMAGE_LABEL" {
     default = "latest"
 }
 
+variable "VERSION" {
+    default = "latest"
+}
+
 variable "RUNTIME" {
     default = "cuda"
 }
@@ -18,16 +22,26 @@ variable "PLATFORMS" {
     default = ["linux/amd64"]
 }
 
+// Cache configuration - defaults for local builds
+// CI/CD will override these via --set parameters
+
 target "runtime-cuda" {
     context = "services/runtime"
     dockerfile = "dockerfile.cuda.runtime"
     platforms = PLATFORMS
     tags = [
         "${REGISTRY_URL}runtime:cuda-${IMAGE_LABEL}",
+        "${REGISTRY_URL}runtime:cuda-v${VERSION}",
         "${REGISTRY_URL}runtime:cuda-cache"
     ]
-    cache-from = ["type=registry,ref=${REGISTRY_URL}runtime:cuda-cache,optional=true"]
-    cache-to   = ["type=inline"]
+    cache-from = [
+        "type=inline",
+        "type=gha,scope=runtime-cuda"
+    ]
+    cache-to = [
+        "type=inline",
+        "type=gha,scope=runtime-cuda,mode=max"
+    ]
 }
 
 target "runtime-cpu" {
@@ -36,10 +50,37 @@ target "runtime-cpu" {
     platforms = PLATFORMS
     tags = [
         "${REGISTRY_URL}runtime:cpu-${IMAGE_LABEL}",
+        "${REGISTRY_URL}runtime:cpu-v${VERSION}",
         "${REGISTRY_URL}runtime:cpu-cache"
     ]
-    cache-from = ["type=registry,ref=${REGISTRY_URL}runtime:cpu-cache,optional=true"]
-    cache-to   = ["type=inline"]
+    cache-from = [
+        "type=inline",
+        "type=gha,scope=runtime-cpu"
+    ]
+    cache-to = [
+        "type=inline",
+        "type=gha,scope=runtime-cpu,mode=max"
+    ]
+}
+
+target "sageattention-builder" {
+    context = "services/builder/sageattention"
+    dockerfile = "dockerfile.sageattention.builder"
+    platforms = PLATFORMS
+    tags = [
+        "${REGISTRY_URL}sageattention-builder:${IMAGE_LABEL}",
+        "${REGISTRY_URL}sageattention-builder:v${VERSION}",
+        "${REGISTRY_URL}sageattention-builder:cache"
+    ]
+    cache-from = [
+        "type=inline",
+        "type=gha,scope=sageattention-builder"
+    ]
+    cache-to = [
+        "type=inline",
+        "type=gha,scope=sageattention-builder,mode=max"
+    ]
+    target = "sageattention-builder"
 }
 
 target "core-cuda" {
@@ -51,13 +92,17 @@ target "core-cuda" {
     platforms = PLATFORMS
     tags = [
         "${REGISTRY_URL}core:cuda-${IMAGE_LABEL}",
+        "${REGISTRY_URL}core:cuda-v${VERSION}",
         "${REGISTRY_URL}core:cuda-cache"
     ]
     cache-from = [
-        "type=registry,ref=${REGISTRY_URL}runtime:cuda-cache,optional=true",
-        "type=registry,ref=${REGISTRY_URL}core:cuda-cache,optional=true"
+        "type=inline",
+        "type=gha,scope=core-cuda"
     ]
-    cache-to   = ["type=inline"]
+    cache-to = [
+        "type=inline",
+        "type=gha,scope=core-cuda,mode=max"
+    ]
     args = {
         RUNTIME = "cuda"
     }
@@ -73,13 +118,17 @@ target "core-cpu" {
     platforms = PLATFORMS
     tags = [
         "${REGISTRY_URL}core:cpu-${IMAGE_LABEL}",
+        "${REGISTRY_URL}core:cpu-v${VERSION}",
         "${REGISTRY_URL}core:cpu-cache"
     ]
     cache-from = [
-        "type=registry,ref=${REGISTRY_URL}runtime:cpu-cache,optional=true",
-        "type=registry,ref=${REGISTRY_URL}core:cpu-cache,optional=true"
+        "type=inline",
+        "type=gha,scope=core-cpu"
     ]
-    cache-to   = ["type=inline"]
+    cache-to = [
+        "type=inline",
+        "type=gha,scope=core-cpu,mode=max"
+    ]
     args = {
         RUNTIME = "cpu"
     }
@@ -90,20 +139,24 @@ target "complete-cuda" {
     context = "services/comfy/complete"
     contexts = {
         core = "target:core-cuda"
+        sageattention-builder = "target:sageattention-builder"
     }
     dockerfile = "dockerfile.comfy.cuda.complete"
     platforms = PLATFORMS
     tags = [
         "${REGISTRY_URL}complete:cuda-${IMAGE_LABEL}",
+        "${REGISTRY_URL}complete:cuda-v${VERSION}",
         "${REGISTRY_URL}complete:cuda-cache"
     ]
     cache-from = [
-        "type=registry,ref=${REGISTRY_URL}runtime:cuda-cache,optional=true",
-        "type=registry,ref=${REGISTRY_URL}core:cuda-cache,optional=true",
-        "type=registry,ref=${REGISTRY_URL}complete:cuda-cache,optional=true"
+        "type=inline",
+        "type=gha,scope=complete-cuda"
     ]
-    cache-to   = ["type=inline"]
-    depends_on = ["core-cuda"]
+    cache-to = [
+        "type=inline",
+        "type=gha,scope=complete-cuda,mode=max"
+    ]
+    depends_on = ["core-cuda", "sageattention-builder"]
 }
 
 // Convenience groups
@@ -129,5 +182,9 @@ group "cuda" {
 
 group "cpu" {
     targets = ["runtime-cpu", "core-cpu"]
+}
+
+group "builders" {
+    targets = ["sageattention-builder"]
 }
 
